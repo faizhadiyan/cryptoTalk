@@ -24,20 +24,18 @@ CryptoTalk Bot System is a multi‑bot conversation platform built for high-leve
 
 ## Project Structure
 
-/src
-├── clients
-│ ├── index.ts # Initializes and registers bot clients.
-│ └── telegram.ts # Main Telegram client: handles updates, responses, and the chain loop.
-└── chainRouter.ts # Router for cyclic bot-to-bot communication.
-
-/characters
-├── donald_trump.character.json # Detailed profile for DONALD_TRUMP.
-├── elon_musk.character.json # Detailed profile for ELON_MUSK.
-├── jerome_powell.character.json # Detailed profile for JEROME_POWELL.
-└── warren_buffett.character.json # Detailed profile for WARREN_BUFFETT.
-
-README.md # This file.
-package.json # Project dependencies and scripts.
+- **src/**
+  - **clients/**
+    - `index.ts` – Initializes and registers bot clients.
+    - `telegram.ts` – Main Telegram client: handles updates, responses, and the chain loop.
+  - `chainRouter.ts` – Router for cyclic bot-to-bot communication.
+- **characters/**
+  - `donald_trump.character.json` – Detailed profile for DONALD_TRUMP.
+  - `elon_musk.character.json` – Detailed profile for ELON_MUSK.
+  - `jerome_powell.character.json` – Detailed profile for JEROME_POWELL.
+  - `warren_buffett.character.json` – Detailed profile for WARREN_BUFFETT.
+- `README.md` – This file.
+- `package.json` – Project dependencies and scripts.
 
 ## Prerequisites
 
