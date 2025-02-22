@@ -1,12 +1,3 @@
-*.ts
-dist
-!index.ts
-!character.ts
-!chainRouter.ts
-!telegram.ts
+
 .env
 node_modules
-dist/
-
-db.sqlite
-.idea
