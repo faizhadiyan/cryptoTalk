@@ -53,8 +53,8 @@ CryptoTalk Bot System is a multi‑bot conversation platform built for high-leve
    ```
 
 2. Install Dependencies
-   Using npm:
-   npm install
+
+   pnpm install
 
 Or using yarn:
 yarn install
@@ -75,10 +75,10 @@ OPENAI_API_KEY=your_openai_api_key_here
 ### Running the Bot
 
 To start the system, run:
-npm start
+pnpm start
 
 Or, if you are using ts-node:
-npx ts-node src/clients/index.ts
+pnpm ts-node src/clients/index.ts
 
 Once running, the bot system will connect to Telegram and (if configured) other clients. It will wait for a user message; upon receiving one, it will process it, trigger immediate direct responses for any mentions, and then continue the conversation automatically via the chain loop.
 
@@ -113,6 +113,15 @@ Verify that your environment variables are properly configured and that your tok
 Confirm that Telegram is not sending different message IDs for repeated updates. The system uses a permanent duplicate cache to avoid multiple responses.
 • Direct Mentions Not Working:
 Check that the regex in processMessage() is correctly capturing mentions, and that your character names in the JSON profiles match the expected format (case-insensitive).
+
+Note for Contributors
+
+This project uses pnpm instead of npm.
+If you’re new to pnpm, install it first:
+npm install -g pnpm
+
+Then install the dependencies with:
+pnpm install
 
 License
 
