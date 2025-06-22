@@ -503,36 +503,35 @@ var defaultConversationConfig = {
 };
 var devConversationConfig = {
   ...defaultConversationConfig,
-  minResponseDelay: 10 * 1e3,
+  minResponseDelay: 3 * 1e3,
+  // 3 seconds
+  maxResponseDelay: 10 * 1e3,
   // 10 seconds
-  maxResponseDelay: 30 * 1e3,
-  // 30 seconds
-  cooldownPeriod: 30 * 1e3,
-  // 30 seconds
+  cooldownPeriod: 15 * 1e3,
+  // 15 seconds
   conversationTimeout: 5 * 60 * 1e3,
   // 5 minutes
   mentionResponseDelay: {
-    min: 5 * 1e3,
-    // 5 seconds
-    max: 15 * 1e3
-    // 15 seconds
+    min: 1 * 1e3,
+    // 1 second
+    max: 3 * 1e3
+    // 3 seconds
   },
   userMessageResponseDelay: {
-    min: 10 * 1e3,
-    // 10 seconds
-    max: 30 * 1e3
-    // 30 seconds
+    min: 2 * 1e3,
+    // 2 seconds
+    max: 5 * 1e3
+    // 5 seconds
   },
   responseSpacing: {
-    min: 5 * 1e3,
-    // 5 seconds
-    max: 20 * 1e3
-    // 20 seconds
+    min: 3 * 1e3,
+    // 3 seconds
+    max: 8 * 1e3
+    // 8 seconds
   }
 };
 function getConversationConfig() {
-  const isDev = process.env.NODE_ENV === "development" || process.env.FAST_MODE === "true";
-  return isDev ? devConversationConfig : defaultConversationConfig;
+  return devConversationConfig;
 }
 
 // src/clients/humanConversationManager.ts
