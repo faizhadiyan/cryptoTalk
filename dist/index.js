@@ -503,36 +503,35 @@ var defaultConversationConfig = {
 };
 var devConversationConfig = {
   ...defaultConversationConfig,
-  minResponseDelay: 10 * 1e3,
+  minResponseDelay: 3 * 1e3,
+  // 3 seconds
+  maxResponseDelay: 10 * 1e3,
   // 10 seconds
-  maxResponseDelay: 30 * 1e3,
-  // 30 seconds
-  cooldownPeriod: 30 * 1e3,
-  // 30 seconds
+  cooldownPeriod: 15 * 1e3,
+  // 15 seconds
   conversationTimeout: 5 * 60 * 1e3,
   // 5 minutes
   mentionResponseDelay: {
-    min: 5 * 1e3,
-    // 5 seconds
-    max: 15 * 1e3
-    // 15 seconds
+    min: 1 * 1e3,
+    // 1 second
+    max: 3 * 1e3
+    // 3 seconds
   },
   userMessageResponseDelay: {
-    min: 10 * 1e3,
-    // 10 seconds
-    max: 30 * 1e3
-    // 30 seconds
+    min: 2 * 1e3,
+    // 2 seconds
+    max: 5 * 1e3
+    // 5 seconds
   },
   responseSpacing: {
-    min: 5 * 1e3,
-    // 5 seconds
-    max: 20 * 1e3
-    // 20 seconds
+    min: 3 * 1e3,
+    // 3 seconds
+    max: 8 * 1e3
+    // 8 seconds
   }
 };
 function getConversationConfig() {
-  const isDev = process.env.NODE_ENV === "development" || process.env.FAST_MODE === "true";
-  return isDev ? devConversationConfig : defaultConversationConfig;
+  return devConversationConfig;
 }
 
 // src/clients/humanConversationManager.ts
@@ -588,10 +587,16 @@ var HumanConversationManager = class _HumanConversationManager {
       Date.now() + this.config.cooldownPeriod
     );
     if (this.conversationState.isConversationActive) {
-      this.scheduleFollowUpResponses(chatId);
+      const shouldScheduleResponses = Math.random() < 0.8;
+      if (shouldScheduleResponses) {
+        elizaLogger.info(`Scheduling follow-up responses after ${botName}'s message`);
+        this.scheduleFollowUpResponses(chatId);
+      } else {
+        elizaLogger.info(`Not scheduling follow-ups after ${botName}'s message (random decision)`);
+      }
     }
   }
-  // This method is now only used for follow-up responses after a bot has responded
+  // Method for scheduling follow-up responses from other bots
   scheduleFollowUpResponses(chatId) {
     const now = Date.now();
     const availableBots = this.getAvailableBots();
@@ -599,10 +604,19 @@ var HumanConversationManager = class _HumanConversationManager {
       elizaLogger.info("No available bots for scheduling follow-up responses");
       return;
     }
-    const numResponses = Math.min(
-      Math.floor(Math.random() * this.config.maxScheduledResponses) + 1,
-      availableBots.length
-    );
+    let numResponsesToSchedule;
+    const randomFactor = Math.random();
+    if (randomFactor < 0.3) {
+      numResponsesToSchedule = 1;
+    } else if (randomFactor < 0.7) {
+      numResponsesToSchedule = 2;
+    } else if (randomFactor < 0.9) {
+      numResponsesToSchedule = 3;
+    } else {
+      numResponsesToSchedule = availableBots.length;
+    }
+    const numResponses = Math.min(numResponsesToSchedule, availableBots.length);
+    elizaLogger.info(`Scheduling ${numResponses} follow-up responses from available bots`);
     let lastScheduledTime = now;
     for (let i = 0; i < numResponses; i++) {
       const randomBot = this.selectRandomBot(availableBots);
@@ -611,12 +625,19 @@ var HumanConversationManager = class _HumanConversationManager {
       if (botIndex > -1) {
         availableBots.splice(botIndex, 1);
       }
-      const baseDelay = Math.floor(Math.random() * (this.config.maxResponseDelay - this.config.minResponseDelay)) + this.config.minResponseDelay;
-      const spacing = Math.floor(Math.random() * (this.config.responseSpacing.max - this.config.responseSpacing.min)) + this.config.responseSpacing.min;
-      const delay = baseDelay + i * spacing;
+      let delay;
+      if (i === 0) {
+        delay = Math.floor(Math.random() * (this.config.responseSpacing.max / 2 - this.config.responseSpacing.min / 2)) + this.config.responseSpacing.min / 2;
+      } else {
+        const baseDelay = Math.floor(Math.random() * (this.config.maxResponseDelay - this.config.minResponseDelay)) + this.config.minResponseDelay;
+        const variability = Math.random() * 2e3;
+        delay = baseDelay + i * this.config.responseSpacing.min + variability;
+      }
       const scheduledTime = lastScheduledTime + delay;
       lastScheduledTime = scheduledTime;
-      const prompt = this.generateContextualPrompt(randomBot.character.name, i);
+      const promptTypes = ["agreement", "disagreement", "question", "elaboration", "joke"];
+      const promptType = promptTypes[Math.floor(Math.random() * promptTypes.length)];
+      const prompt = this.generateEnhancedPrompt(randomBot.character.name, i, promptType);
       this.conversationState.messageQueue.push({
         botName: randomBot.character.name,
         scheduledTime,
@@ -624,7 +645,7 @@ var HumanConversationManager = class _HumanConversationManager {
         chatId
       });
       elizaLogger.info(
-        `Scheduled follow-up response from ${randomBot.character.name} in ${Math.round(delay / 1e3)}s`
+        `Scheduled ${promptType} response from ${randomBot.character.name} in ${Math.round(delay / 1e3)}s`
       );
     }
     this.conversationState.messageQueue.sort((a, b) => a.scheduledTime - b.scheduledTime);
@@ -686,6 +707,60 @@ var HumanConversationManager = class _HumanConversationManager {
     const categoryPrompts = prompts[promptCategory];
     const randomPrompt = categoryPrompts[Math.floor(Math.random() * categoryPrompts.length)];
     return `[${randomPrompt}. Respond naturally as ${botName} without mentioning your own name.]`;
+  }
+  generateEnhancedPrompt(botName, responseIndex, promptType) {
+    const prompts = {
+      agreement: [
+        "You generally agree with the previous point. Add your supportive perspective.",
+        "Build on what was just said with your own supporting evidence or examples.",
+        "Express agreement with the previous speaker and expand on their point.",
+        "You think the previous speaker made a good point. Elaborate on why you agree."
+      ],
+      disagreement: [
+        "You disagree with aspects of what was just said. Explain your different perspective.",
+        "Challenge the previous point with your contrasting viewpoint.",
+        "Politely disagree and offer an alternative perspective on this topic.",
+        "You see things differently. Present your counterargument respectfully."
+      ],
+      question: [
+        "Ask a thought-provoking question about what was just discussed.",
+        "Pose a challenging question that explores the implications of the previous point.",
+        "Request clarification or more details about the previous statement.",
+        "Raise an important question that shifts the conversation in a new direction."
+      ],
+      elaboration: [
+        "Elaborate on the topic with additional technical or economic insights.",
+        "Provide more depth on this subject from your unique perspective.",
+        "Share a relevant anecdote or example that illustrates the current topic.",
+        "Expand the conversation by connecting this topic to broader trends or implications."
+      ],
+      joke: [
+        "Make a witty or humorous comment related to the discussion.",
+        "Add a touch of humor while still making a substantive point.",
+        "Share a clever analogy or metaphor that lightens the mood but adds value.",
+        "Make a playful remark that's still relevant to the cryptocurrency discussion."
+      ]
+    };
+    const typePrompts = prompts[promptType] || prompts.elaboration;
+    const randomPrompt = typePrompts[Math.floor(Math.random() * typePrompts.length)];
+    let characterInstruction = "";
+    switch (botName) {
+      case "ELON_MUSK":
+        characterInstruction = "Be innovative, slightly irreverent, and forward-thinking.";
+        break;
+      case "DONALD_TRUMP":
+        characterInstruction = "Be bold, confident, and use simple, direct language.";
+        break;
+      case "JEROME_POWELL":
+        characterInstruction = "Be measured, data-driven, and cautious in your analysis.";
+        break;
+      case "WARREN_BUFFETT":
+        characterInstruction = "Be conservative, value-focused, and use folksy wisdom.";
+        break;
+      default:
+        characterInstruction = "Maintain your unique personality and expertise.";
+    }
+    return `[${randomPrompt} ${characterInstruction} Respond naturally as yourself without mentioning your own name.]`;
   }
   startMessageProcessor() {
     this.processingTimer = setInterval(() => {
@@ -754,8 +829,25 @@ var HumanConversationManager = class _HumanConversationManager {
     }
     elizaLogger.info(`Selected ${selectedBot.character.name} to respond to user message`);
     const config = getConversationConfig();
-    const responseDelay = Math.random() * (config.userMessageResponseDelay.max - config.userMessageResponseDelay.min) + config.userMessageResponseDelay.min;
-    const prompt = this.generateContextualPrompt(selectedBot.character.name, 0);
+    const responseDelay = Math.random() * 2e3 + 1e3;
+    let promptType = "initial";
+    switch (selectedBot.character.name) {
+      case "ELON_MUSK":
+        promptType = Math.random() < 0.4 ? "joke" : "elaboration";
+        break;
+      case "DONALD_TRUMP":
+        promptType = Math.random() < 0.6 ? "disagreement" : "elaboration";
+        break;
+      case "JEROME_POWELL":
+        promptType = Math.random() < 0.7 ? "elaboration" : "question";
+        break;
+      case "WARREN_BUFFETT":
+        promptType = Math.random() < 0.5 ? "agreement" : "elaboration";
+        break;
+      default:
+        promptType = "elaboration";
+    }
+    const prompt = this.generateEnhancedPrompt(selectedBot.character.name, 0, promptType);
     const scheduledTime = Date.now() + responseDelay;
     this.conversationState.messageQueue.push({
       botName: selectedBot.character.name,
@@ -764,7 +856,7 @@ var HumanConversationManager = class _HumanConversationManager {
       chatId
     });
     elizaLogger.info(
-      `Scheduled single response from ${selectedBot.character.name} in ${Math.round(responseDelay / 1e3)}s`
+      `Scheduled initial ${promptType} response from ${selectedBot.character.name} in ${Math.round(responseDelay / 1e3)}s`
     );
   }
   getBotByName(botName) {

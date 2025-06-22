@@ -83,13 +83,23 @@ export class HumanConversationManager {
       Date.now() + this.config.cooldownPeriod
     );
     
-    // Schedule follow-up responses from other bots if conversation is still active
+    // Always schedule follow-up responses from other bots if conversation is active
+    // This ensures bots will respond to each other automatically
     if (this.conversationState.isConversationActive) {
-      this.scheduleFollowUpResponses(chatId);
+      // Determine if we should schedule follow-up responses
+      // Use a high probability (80%) to make conversations more lively
+      const shouldScheduleResponses = Math.random() < 0.8;
+      
+      if (shouldScheduleResponses) {
+        elizaLogger.info(`Scheduling follow-up responses after ${botName}'s message`);
+        this.scheduleFollowUpResponses(chatId);
+      } else {
+        elizaLogger.info(`Not scheduling follow-ups after ${botName}'s message (random decision)`);
+      }
     }
   }
 
-  // This method is now only used for follow-up responses after a bot has responded
+  // Method for scheduling follow-up responses from other bots
   private scheduleFollowUpResponses(chatId: string): void {
     const now = Date.now();
     const availableBots = this.getAvailableBots();
@@ -99,11 +109,29 @@ export class HumanConversationManager {
       return;
     }
 
-    // Schedule 1-3 random responses
-    const numResponses = Math.min(
-      Math.floor(Math.random() * this.config.maxScheduledResponses) + 1,
-      availableBots.length
-    );
+    // Determine how many bots should respond (more dynamic conversation)
+    // Use a weighted random approach to sometimes have more bots respond
+    let numResponsesToSchedule;
+    const randomFactor = Math.random();
+    
+    if (randomFactor < 0.3) {
+      // 30% chance: Schedule just 1 response
+      numResponsesToSchedule = 1;
+    } else if (randomFactor < 0.7) {
+      // 40% chance: Schedule 2 responses
+      numResponsesToSchedule = 2;
+    } else if (randomFactor < 0.9) {
+      // 20% chance: Schedule 3 responses
+      numResponsesToSchedule = 3;
+    } else {
+      // 10% chance: Schedule all available bots (lively discussion)
+      numResponsesToSchedule = availableBots.length;
+    }
+    
+    // Ensure we don't schedule more responses than available bots
+    const numResponses = Math.min(numResponsesToSchedule, availableBots.length);
+    elizaLogger.info(`Scheduling ${numResponses} follow-up responses from available bots`);
+    
     let lastScheduledTime = now;
 
     for (let i = 0; i < numResponses; i++) {
@@ -116,18 +144,32 @@ export class HumanConversationManager {
         availableBots.splice(botIndex, 1);
       }
 
-      // Calculate random delay with spacing
-      const baseDelay = Math.floor(Math.random() * 
-        (this.config.maxResponseDelay - this.config.minResponseDelay)) + this.config.minResponseDelay;
-      const spacing = Math.floor(Math.random() * 
-        (this.config.responseSpacing.max - this.config.responseSpacing.min)) + this.config.responseSpacing.min;
+      // Create more varied and natural timing between responses
+      let delay;
       
-      const delay = baseDelay + (i * spacing);
+      if (i === 0) {
+        // First response comes quicker (someone eager to respond)
+        delay = Math.floor(Math.random() * 
+          (this.config.responseSpacing.max / 2 - this.config.responseSpacing.min / 2)) + 
+          this.config.responseSpacing.min / 2;
+      } else {
+        // Subsequent responses have more varied timing
+        const baseDelay = Math.floor(Math.random() * 
+          (this.config.maxResponseDelay - this.config.minResponseDelay)) + 
+          this.config.minResponseDelay;
+          
+        // Add some randomness to make it feel more natural
+        const variability = Math.random() * 2000; // +/- 2 seconds of randomness
+        delay = baseDelay + (i * this.config.responseSpacing.min) + variability;
+      }
+      
       const scheduledTime = lastScheduledTime + delay;
       lastScheduledTime = scheduledTime;
 
-      // Create contextual prompt based on conversation flow
-      const prompt = this.generateContextualPrompt(randomBot.character.name, i);
+      // Create more varied and contextual prompts
+      const promptTypes = ['agreement', 'disagreement', 'question', 'elaboration', 'joke'];
+      const promptType = promptTypes[Math.floor(Math.random() * promptTypes.length)];
+      const prompt = this.generateEnhancedPrompt(randomBot.character.name, i, promptType);
 
       this.conversationState.messageQueue.push({
         botName: randomBot.character.name,
@@ -137,7 +179,7 @@ export class HumanConversationManager {
       });
 
       elizaLogger.info(
-        `Scheduled follow-up response from ${randomBot.character.name} in ${Math.round(delay / 1000)}s`
+        `Scheduled ${promptType} response from ${randomBot.character.name} in ${Math.round(delay / 1000)}s`
       );
     }
 
@@ -214,6 +256,68 @@ export class HumanConversationManager {
     const randomPrompt = categoryPrompts[Math.floor(Math.random() * categoryPrompts.length)];
     
     return `[${randomPrompt}. Respond naturally as ${botName} without mentioning your own name.]`;
+  }
+  
+  private generateEnhancedPrompt(botName: string, responseIndex: number, promptType: string): string {
+    // Different types of prompts for more varied and natural conversation
+    const prompts = {
+      agreement: [
+        "You generally agree with the previous point. Add your supportive perspective.",
+        "Build on what was just said with your own supporting evidence or examples.",
+        "Express agreement with the previous speaker and expand on their point.",
+        "You think the previous speaker made a good point. Elaborate on why you agree."
+      ],
+      disagreement: [
+        "You disagree with aspects of what was just said. Explain your different perspective.",
+        "Challenge the previous point with your contrasting viewpoint.",
+        "Politely disagree and offer an alternative perspective on this topic.",
+        "You see things differently. Present your counterargument respectfully."
+      ],
+      question: [
+        "Ask a thought-provoking question about what was just discussed.",
+        "Pose a challenging question that explores the implications of the previous point.",
+        "Request clarification or more details about the previous statement.",
+        "Raise an important question that shifts the conversation in a new direction."
+      ],
+      elaboration: [
+        "Elaborate on the topic with additional technical or economic insights.",
+        "Provide more depth on this subject from your unique perspective.",
+        "Share a relevant anecdote or example that illustrates the current topic.",
+        "Expand the conversation by connecting this topic to broader trends or implications."
+      ],
+      joke: [
+        "Make a witty or humorous comment related to the discussion.",
+        "Add a touch of humor while still making a substantive point.",
+        "Share a clever analogy or metaphor that lightens the mood but adds value.",
+        "Make a playful remark that's still relevant to the cryptocurrency discussion."
+      ]
+    };
+    
+    // Select a random prompt from the chosen type
+    const typePrompts = prompts[promptType as keyof typeof prompts] || prompts.elaboration;
+    const randomPrompt = typePrompts[Math.floor(Math.random() * typePrompts.length)];
+    
+    // Add character-specific instructions based on their personality
+    let characterInstruction = "";
+    
+    switch(botName) {
+      case "ELON_MUSK":
+        characterInstruction = "Be innovative, slightly irreverent, and forward-thinking.";
+        break;
+      case "DONALD_TRUMP":
+        characterInstruction = "Be bold, confident, and use simple, direct language.";
+        break;
+      case "JEROME_POWELL":
+        characterInstruction = "Be measured, data-driven, and cautious in your analysis.";
+        break;
+      case "WARREN_BUFFETT":
+        characterInstruction = "Be conservative, value-focused, and use folksy wisdom.";
+        break;
+      default:
+        characterInstruction = "Maintain your unique personality and expertise.";
+    }
+    
+    return `[${randomPrompt} ${characterInstruction} Respond naturally as yourself without mentioning your own name.]`;
   }
 
   private startMessageProcessor(): void {
@@ -307,14 +411,38 @@ export class HumanConversationManager {
     
     elizaLogger.info(`Selected ${selectedBot.character.name} to respond to user message`);
     
-    // Calculate response delay
+    // Calculate a faster response delay for initial responses
+    // Make initial responses much quicker (1-3 seconds) for better user experience
     const config = getConversationConfig();
-    const responseDelay = Math.random() * 
-      (config.userMessageResponseDelay.max - config.userMessageResponseDelay.min) + 
-      config.userMessageResponseDelay.min;
+    const responseDelay = Math.random() * 2000 + 1000; // 1-3 seconds
     
-    // Schedule only this bot to respond
-    const prompt = this.generateContextualPrompt(selectedBot.character.name, 0);
+    // Determine the type of response based on the bot's personality
+    let promptType = 'initial';
+    
+    // Add some personality-based variation to the first response
+    switch(selectedBot.character.name) {
+      case "ELON_MUSK":
+        // Elon is more likely to make jokes or be contrarian
+        promptType = Math.random() < 0.4 ? 'joke' : 'elaboration';
+        break;
+      case "DONALD_TRUMP":
+        // Trump is more likely to be bold and direct
+        promptType = Math.random() < 0.6 ? 'disagreement' : 'elaboration';
+        break;
+      case "JEROME_POWELL":
+        // Powell is more measured and analytical
+        promptType = Math.random() < 0.7 ? 'elaboration' : 'question';
+        break;
+      case "WARREN_BUFFETT":
+        // Buffett is more conservative and wisdom-focused
+        promptType = Math.random() < 0.5 ? 'agreement' : 'elaboration';
+        break;
+      default:
+        promptType = 'elaboration';
+    }
+    
+    // Schedule only this bot to respond with an enhanced prompt
+    const prompt = this.generateEnhancedPrompt(selectedBot.character.name, 0, promptType);
     const scheduledTime = Date.now() + responseDelay;
     
     this.conversationState.messageQueue.push({
@@ -325,11 +453,10 @@ export class HumanConversationManager {
     });
     
     elizaLogger.info(
-      `Scheduled single response from ${selectedBot.character.name} in ${Math.round(responseDelay / 1000)}s`
+      `Scheduled initial ${promptType} response from ${selectedBot.character.name} in ${Math.round(responseDelay / 1000)}s`
     );
     
-    // After this bot responds, we'll schedule follow-up responses from other bots
-    // This happens in the onBotMessage method
+    // After this bot responds, follow-up responses will be scheduled in onBotMessage
   }
 
   public getBotByName(botName: string): CustomTelegramClient | null {

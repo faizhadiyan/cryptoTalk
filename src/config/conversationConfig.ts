@@ -89,26 +89,26 @@ export const defaultConversationConfig: ConversationConfig = {
 // Development config for faster testing
 export const devConversationConfig: ConversationConfig = {
   ...defaultConversationConfig,
-  minResponseDelay: 10 * 1000,      // 10 seconds
-  maxResponseDelay: 30 * 1000,      // 30 seconds
-  cooldownPeriod: 30 * 1000,        // 30 seconds
+  minResponseDelay: 3 * 1000,       // 3 seconds
+  maxResponseDelay: 10 * 1000,      // 10 seconds
+  cooldownPeriod: 15 * 1000,        // 15 seconds
   conversationTimeout: 5 * 60 * 1000, // 5 minutes
   mentionResponseDelay: {
-    min: 5 * 1000,   // 5 seconds
-    max: 15 * 1000   // 15 seconds
+    min: 1 * 1000,   // 1 second
+    max: 3 * 1000    // 3 seconds
   },
   userMessageResponseDelay: {
-    min: 10 * 1000,  // 10 seconds
-    max: 30 * 1000   // 30 seconds
+    min: 2 * 1000,   // 2 seconds
+    max: 5 * 1000    // 5 seconds
   },
   responseSpacing: {
-    min: 5 * 1000,   // 5 seconds
-    max: 20 * 1000   // 20 seconds
+    min: 3 * 1000,   // 3 seconds
+    max: 8 * 1000    // 8 seconds
   }
 };
 
 // Get configuration based on environment
 export function getConversationConfig(): ConversationConfig {
-  const isDev = process.env.NODE_ENV === 'development' || process.env.FAST_MODE === 'true';
-  return isDev ? devConversationConfig : defaultConversationConfig;
+  // Always return dev config for faster responses
+  return devConversationConfig;
 }
