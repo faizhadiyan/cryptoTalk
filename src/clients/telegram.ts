@@ -5,6 +5,8 @@ import { Telegraf, Context } from 'telegraf';
 import { Update, Message, UserFromGetMe } from 'telegraf/types';
 import { OpenAI } from 'openai';
 import { ChainBotRouter } from './chainRouter.js';
+import { HumanConversationManager } from './humanConversationManager.js';
+import { getConversationConfig } from '../config/conversationConfig.js';
 import { createHash } from 'crypto';
 
 // Global set for processed user message IDs (permanent)
@@ -13,7 +15,7 @@ const processedUpdates = new Set<number>();
 export class CustomTelegramClient {
   // Use a Set so that each user message (by message ID) is processed only once.
   private processedUserMessages = new Set<number>();
-  private bot: Telegraf;
+  public bot: Telegraf;
   private runtime: IAgentRuntime;
   public character: Character;
   private startTimeout: NodeJS.Timeout | null = null;
@@ -32,6 +34,11 @@ export class CustomTelegramClient {
     this.runtime = runtime;
     this.character = character;
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    // Register this bot with the human conversation manager
+    const humanConversationManager = HumanConversationManager.getInstance();
+    humanConversationManager.registerBot(this);
+    
     // Cleanup processedMessages every 10 seconds (do not clear processedUserMessages)
     this.cleanupInterval = setInterval(() => {
       const now = Date.now();
@@ -192,7 +199,7 @@ export class CustomTelegramClient {
     }
   }
 
-  private async getAIResponse(message: string, chatId: string): Promise<string> {
+  public async getAIResponse(message: string, chatId: string): Promise<string> {
     try {
       const characterPrompt = `You are ${this.character.name}.
 You are a crypto and macroeconomics expert with a highly detailed persona.
@@ -248,26 +255,10 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
     }
   }
 
-  // Start a continuous chain loop that triggers follow-up responses every 30 seconds.
+  // Legacy chain loop methods - kept for compatibility but not used in human conversation mode
   private startChainLoop(chatId: string): void {
-    // Clear any existing loop.
-    if (this.chainLoopTimer) {
-      clearInterval(this.chainLoopTimer);
-    }
-    const chainRouter = ChainBotRouter.getInstance();
-    this.chainLoopTimer = setInterval(async () => {
-      const nextBot = chainRouter.getNextBot();
-      if (nextBot && nextBot.character.name !== this.character.name) {
-        const followUpPrompt = `[Generate a continuous follow-up response addressing ${nextBot.character.name} on the crypto topic in detail]`;
-        try {
-          const followUpResponse = await nextBot.getAIResponse(followUpPrompt, chatId);
-          await this.bot.telegram.sendMessage(chatId, `@${nextBot.character.name} ${followUpResponse}`);
-          chainRouter.recordResponse(nextBot.character.name);
-        } catch (err) {
-          elizaLogger.error('Error in chain loop:', err);
-        }
-      }
-    }, 30000);
+    // This method is now handled by HumanConversationManager
+    elizaLogger.info('Chain loop start requested - now handled by HumanConversationManager');
   }
 
   private stopChainLoop(): void {
@@ -275,6 +266,7 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
       clearInterval(this.chainLoopTimer);
       this.chainLoopTimer = null;
     }
+    elizaLogger.info('Chain loop stopped');
   }
 
   // Process incoming messages.
@@ -283,7 +275,7 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
       const messageId = message.message_id;
       const isFromUser = !message.from?.is_bot;
       const chatId = message.chat.id.toString();
-      const chainRouter = ChainBotRouter.getInstance();
+      const humanConversationManager = HumanConversationManager.getInstance();
 
       // Check for direct mention using a case-insensitive regex.
       let mentionedBotName: string | null = null;
@@ -314,93 +306,152 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
           this.processedUserMessages.add(messageId);
         }
 
-        // Reset chain and stop any existing chain loop.
-        chainRouter.resetChain();
+        // Stop any existing chain loop and notify human conversation manager
         this.stopChainLoop();
+        humanConversationManager.onUserMessage(chatId);
 
-        // Process the user message.
-        const aiResponse = await this.getAIResponse(message.text || '', chatId);
-        await ctx.sendChatAction('typing');
-        const botReply = await ctx.reply(aiResponse, {
-          reply_parameters: {
-            message_id: message.message_id,
-            chat_id: message.chat.id,
-            allow_sending_without_reply: true,
-          },
-        });
-        elizaLogger.info(`Bot ${this.character.name} replied to user:`, aiResponse);
-        chainRouter.recordResponse(this.character.name);
-
-        // If there is no direct mention in the user message, trigger an immediate follow-up.
-        if (!mentionedBotName) {
-          const nextBot = chainRouter.getNextBot();
-          if (nextBot && nextBot.character.name !== this.character.name) {
-            const followUpPrompt = `[Generate a follow-up response addressing ${nextBot.character.name} based on the previous reply]`;
-            const followUpResponse = await nextBot.getAIResponse(followUpPrompt, chatId);
-            await ctx.sendChatAction('typing');
-            await ctx.reply(`@${nextBot.character.name} ${followUpResponse}`, {
-              reply_parameters: {
-                message_id: botReply.message_id,
-                chat_id: message.chat.id,
-                allow_sending_without_reply: true,
-              },
-            });
-            chainRouter.recordResponse(nextBot.character.name);
-          }
-        }
-        // Start the continuous chain loop.
-        this.startChainLoop(chatId);
-      } else {
-        // For bot-to-bot messages:
+        // Handle direct mentions immediately
         if (mentionedBotName) {
-          const targetBot = chainRouter.getBotByName(mentionedBotName);
+          const targetBot = humanConversationManager.getBotByName(mentionedBotName);
           if (targetBot) {
-            const aiResponse = await targetBot.getAIResponse(`[Directly answer this question: "${message.text}"]`, chatId);
-            await ctx.sendChatAction('typing');
-            await ctx.reply(`@${targetBot.character.name} ${aiResponse}`, {
-              reply_parameters: {
-                message_id: message.message_id,
-                chat_id: message.chat.id,
-                allow_sending_without_reply: true,
-              },
-            });
-            chainRouter.recordResponse(targetBot.character.name);
-            return;
+            elizaLogger.info(`Processing direct mention for ${mentionedBotName}`);
+            
+            // Add random delay for more human-like response
+            const config = getConversationConfig();
+            const responseDelay = Math.random() * 
+              (config.mentionResponseDelay.max - config.mentionResponseDelay.min) + 
+              config.mentionResponseDelay.min;
+            
+            setTimeout(async () => {
+              try {
+                const aiResponse = await targetBot.getAIResponse(
+                  `[You were directly mentioned. Respond to: "${message.text}"]`, 
+                  chatId
+                );
+                
+                await ctx.sendChatAction('typing');
+                
+                // Simulate typing time based on configuration
+                if (config.typingSimulation.enabled) {
+                  const typingTime = Math.min(
+                    aiResponse.length * config.typingSimulation.baseDelay,
+                    config.typingSimulation.maxDelay
+                  );
+                  await new Promise(resolve => setTimeout(resolve, typingTime));
+                }
+                
+                await ctx.reply(aiResponse, {
+                  reply_parameters: {
+                    message_id: message.message_id,
+                    chat_id: message.chat.id,
+                    allow_sending_without_reply: true,
+                  },
+                });
+                
+                elizaLogger.info(`${targetBot.character.name} responded to direct mention`);
+                humanConversationManager.onBotMessage(targetBot.character.name, chatId);
+              } catch (error) {
+                elizaLogger.error(`Error in delayed mention response for ${mentionedBotName}:`, error);
+              }
+            }, responseDelay);
+            
+            return; // Don't process further for direct mentions
           } else {
             elizaLogger.info(`No registered bot found for mention: ${mentionedBotName}`);
           }
         }
-        // Fallback: if no direct mention, use chance-based response.
-        if (Math.random() < 0.3) {
-          const aiResponse = await this.getAIResponse(`[Respond to the conversation]`, chatId);
-          await ctx.sendChatAction('typing');
-          const botReply = await ctx.reply(aiResponse, {
-            reply_parameters: {
-              message_id: message.message_id,
-              chat_id: message.chat.id,
-              allow_sending_without_reply: true,
-            },
-          });
-          chainRouter.recordResponse(this.character.name);
-          const nextBot = chainRouter.getNextBot();
-          if (nextBot && nextBot.character.name !== this.character.name) {
-            const followUpPrompt = `[Generate a follow-up response addressing ${nextBot.character.name}]`;
-            const followUpResponse = await nextBot.getAIResponse(followUpPrompt, chatId);
-            await ctx.sendChatAction('typing');
-            await ctx.reply(`@${nextBot.character.name} ${followUpResponse}`, {
-              reply_parameters: {
-                message_id: botReply.message_id,
-                chat_id: message.chat.id,
-                allow_sending_without_reply: true,
-              },
-            });
-            chainRouter.recordResponse(nextBot.character.name);
+
+        // For regular user messages, only respond if this bot should respond
+        // Use a weighted random selection to determine if this bot responds
+        const shouldRespond = this.shouldRespondToUserMessage();
+        
+        if (shouldRespond) {
+          // Add human-like delay before responding
+          const config = getConversationConfig();
+          const responseDelay = Math.random() * 
+            (config.userMessageResponseDelay.max - config.userMessageResponseDelay.min) + 
+            config.userMessageResponseDelay.min;
+          
+          setTimeout(async () => {
+            try {
+              const aiResponse = await this.getAIResponse(message.text || '', chatId);
+              
+              await ctx.sendChatAction('typing');
+              
+              // Simulate typing time
+              if (config.typingSimulation.enabled) {
+                const typingTime = Math.min(
+                  aiResponse.length * config.typingSimulation.baseDelay,
+                  config.typingSimulation.maxDelay
+                );
+                await new Promise(resolve => setTimeout(resolve, typingTime));
+              }
+              
+              await ctx.reply(aiResponse, {
+                reply_parameters: {
+                  message_id: message.message_id,
+                  chat_id: message.chat.id,
+                  allow_sending_without_reply: true,
+                },
+              });
+              
+              elizaLogger.info(`Bot ${this.character.name} responded to user message after delay`);
+              humanConversationManager.onBotMessage(this.character.name, chatId);
+            } catch (error) {
+              elizaLogger.error(`Error in delayed user response for ${this.character.name}:`, error);
+            }
+          }, responseDelay);
+        }
+      } else {
+        // For bot messages, just notify the conversation manager
+        if (message.from && message.from.first_name) {
+          // Extract bot name from the message or sender info
+          const senderBotName = this.extractBotNameFromMessage(message);
+          if (senderBotName && senderBotName !== this.character.name) {
+            humanConversationManager.onBotMessage(senderBotName, chatId);
           }
         }
       }
     } catch (error) {
       elizaLogger.error('Error processing message:', error);
     }
+  }
+
+  // Helper method to determine if this bot should respond to a user message
+  private shouldRespondToUserMessage(): boolean {
+    const config = getConversationConfig();
+    const responseWeight = config.characterWeights[this.character.name] || 0.25;
+    return Math.random() < responseWeight;
+  }
+
+  // Helper method to extract bot name from message
+  private extractBotNameFromMessage(message: Update.New & Update.NonChannel & Message.TextMessage): string | null {
+    // Try to extract from username or first name
+    const username = message.from?.username;
+    const firstName = message.from?.first_name;
+    
+    // Check if it matches any known bot names
+    const knownBots = ['ELON_MUSK', 'DONALD_TRUMP', 'JEROME_POWELL', 'WARREN_BUFFETT'];
+    
+    if (username) {
+      const upperUsername = username.toUpperCase();
+      for (const botName of knownBots) {
+        if (upperUsername.includes(botName.replace('_', '')) || botName.includes(upperUsername)) {
+          return botName;
+        }
+      }
+    }
+    
+    if (firstName) {
+      const upperFirstName = firstName.toUpperCase();
+      for (const botName of knownBots) {
+        if (upperFirstName.includes(botName.replace('_', '')) || botName.includes(upperFirstName)) {
+          return botName;
+        }
+      }
+    }
+    
+    return null;
   }
 
   async stop() {
