@@ -308,9 +308,8 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
 
         // Stop any existing chain loop and notify human conversation manager
         this.stopChainLoop();
-        humanConversationManager.onUserMessage(chatId);
-
-        // Handle direct mentions immediately
+        
+        // Handle direct mentions immediately - only one bot will respond
         if (mentionedBotName) {
           const targetBot = humanConversationManager.getBotByName(mentionedBotName);
           if (targetBot) {
@@ -322,38 +321,43 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
               (config.mentionResponseDelay.max - config.mentionResponseDelay.min) + 
               config.mentionResponseDelay.min;
             
-            setTimeout(async () => {
-              try {
-                const aiResponse = await targetBot.getAIResponse(
-                  `[You were directly mentioned. Respond to: "${message.text}"]`, 
-                  chatId
-                );
-                
-                await ctx.sendChatAction('typing');
-                
-                // Simulate typing time based on configuration
-                if (config.typingSimulation.enabled) {
-                  const typingTime = Math.min(
-                    aiResponse.length * config.typingSimulation.baseDelay,
-                    config.typingSimulation.maxDelay
+            // Only respond if this is the mentioned bot
+            if (this.character.name.toUpperCase() === mentionedBotName.toUpperCase()) {
+              setTimeout(async () => {
+                try {
+                  const aiResponse = await this.getAIResponse(
+                    `[You were directly mentioned. Respond to: "${message.text}"]`, 
+                    chatId
                   );
-                  await new Promise(resolve => setTimeout(resolve, typingTime));
+                  
+                  await ctx.sendChatAction('typing');
+                  
+                  // Simulate typing time based on configuration
+                  if (config.typingSimulation.enabled) {
+                    const typingTime = Math.min(
+                      aiResponse.length * config.typingSimulation.baseDelay,
+                      config.typingSimulation.maxDelay
+                    );
+                    await new Promise(resolve => setTimeout(resolve, typingTime));
+                  }
+                  
+                  await ctx.reply(aiResponse, {
+                    reply_parameters: {
+                      message_id: message.message_id,
+                      chat_id: message.chat.id,
+                      allow_sending_without_reply: true,
+                    },
+                  });
+                  
+                  elizaLogger.info(`${this.character.name} responded to direct mention`);
+                  humanConversationManager.onBotMessage(this.character.name, chatId);
+                } catch (error) {
+                  elizaLogger.error(`Error in delayed mention response for ${this.character.name}:`, error);
                 }
-                
-                await ctx.reply(aiResponse, {
-                  reply_parameters: {
-                    message_id: message.message_id,
-                    chat_id: message.chat.id,
-                    allow_sending_without_reply: true,
-                  },
-                });
-                
-                elizaLogger.info(`${targetBot.character.name} responded to direct mention`);
-                humanConversationManager.onBotMessage(targetBot.character.name, chatId);
-              } catch (error) {
-                elizaLogger.error(`Error in delayed mention response for ${mentionedBotName}:`, error);
-              }
-            }, responseDelay);
+              }, responseDelay);
+            } else {
+              elizaLogger.info(`Bot ${this.character.name} skipping response as it's not the mentioned bot`);
+            }
             
             return; // Don't process further for direct mentions
           } else {
@@ -361,47 +365,12 @@ For example, if DONALD_TRUMP discusses deregulation, provide analysis on its imp
           }
         }
 
-        // For regular user messages, only respond if this bot should respond
-        // Use a weighted random selection to determine if this bot responds
-        const shouldRespond = this.shouldRespondToUserMessage();
+        // For regular user messages, let the HumanConversationManager handle it
+        // It will select a single bot to respond
+        humanConversationManager.onUserMessage(chatId);
         
-        if (shouldRespond) {
-          // Add human-like delay before responding
-          const config = getConversationConfig();
-          const responseDelay = Math.random() * 
-            (config.userMessageResponseDelay.max - config.userMessageResponseDelay.min) + 
-            config.userMessageResponseDelay.min;
-          
-          setTimeout(async () => {
-            try {
-              const aiResponse = await this.getAIResponse(message.text || '', chatId);
-              
-              await ctx.sendChatAction('typing');
-              
-              // Simulate typing time
-              if (config.typingSimulation.enabled) {
-                const typingTime = Math.min(
-                  aiResponse.length * config.typingSimulation.baseDelay,
-                  config.typingSimulation.maxDelay
-                );
-                await new Promise(resolve => setTimeout(resolve, typingTime));
-              }
-              
-              await ctx.reply(aiResponse, {
-                reply_parameters: {
-                  message_id: message.message_id,
-                  chat_id: message.chat.id,
-                  allow_sending_without_reply: true,
-                },
-              });
-              
-              elizaLogger.info(`Bot ${this.character.name} responded to user message after delay`);
-              humanConversationManager.onBotMessage(this.character.name, chatId);
-            } catch (error) {
-              elizaLogger.error(`Error in delayed user response for ${this.character.name}:`, error);
-            }
-          }, responseDelay);
-        }
+        // We don't need individual bots to decide if they should respond
+        // The manager will select one bot and schedule its response
       } else {
         // For bot messages, just notify the conversation manager
         if (message.from && message.from.first_name) {

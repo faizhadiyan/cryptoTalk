@@ -67,8 +67,8 @@ export class HumanConversationManager {
     this.conversationState.participantCooldowns.clear();
     this.conversationState.messageQueue = [];
     
-    // Schedule random bot responses
-    this.scheduleRandomResponses(chatId);
+    // Select a single bot to respond to the user message
+    this.selectSingleResponder(chatId);
   }
 
   public onBotMessage(botName: string, chatId: string): void {
@@ -83,25 +83,21 @@ export class HumanConversationManager {
       Date.now() + this.config.cooldownPeriod
     );
     
-    // Schedule next responses if conversation is still active
+    // Schedule follow-up responses from other bots if conversation is still active
     if (this.conversationState.isConversationActive) {
-      this.scheduleRandomResponses(chatId);
+      this.scheduleFollowUpResponses(chatId);
     }
   }
 
-  private scheduleRandomResponses(chatId: string): void {
+  // This method is now only used for follow-up responses after a bot has responded
+  private scheduleFollowUpResponses(chatId: string): void {
     const now = Date.now();
     const availableBots = this.getAvailableBots();
     
     if (availableBots.length === 0) {
-      elizaLogger.info('No available bots for scheduling responses');
+      elizaLogger.info('No available bots for scheduling follow-up responses');
       return;
     }
-
-    // Clear existing scheduled messages for this chat
-    this.conversationState.messageQueue = this.conversationState.messageQueue.filter(
-      msg => msg.chatId !== chatId
-    );
 
     // Schedule 1-3 random responses
     const numResponses = Math.min(
@@ -141,7 +137,7 @@ export class HumanConversationManager {
       });
 
       elizaLogger.info(
-        `Scheduled response from ${randomBot.character.name} in ${Math.round(delay / 1000)}s`
+        `Scheduled follow-up response from ${randomBot.character.name} in ${Math.round(delay / 1000)}s`
       );
     }
 
@@ -292,6 +288,48 @@ export class HumanConversationManager {
       this.conversationState.isConversationActive = false;
       this.conversationState.messageQueue = [];
     }
+  }
+  
+  private selectSingleResponder(chatId: string): void {
+    const availableBots = this.getAvailableBots();
+    
+    if (availableBots.length === 0) {
+      elizaLogger.info('No available bots to respond to user message');
+      return;
+    }
+    
+    // Select a single bot to respond based on weights
+    const selectedBot = this.selectRandomBot(availableBots);
+    if (!selectedBot) {
+      elizaLogger.info('Failed to select a bot to respond');
+      return;
+    }
+    
+    elizaLogger.info(`Selected ${selectedBot.character.name} to respond to user message`);
+    
+    // Calculate response delay
+    const config = getConversationConfig();
+    const responseDelay = Math.random() * 
+      (config.userMessageResponseDelay.max - config.userMessageResponseDelay.min) + 
+      config.userMessageResponseDelay.min;
+    
+    // Schedule only this bot to respond
+    const prompt = this.generateContextualPrompt(selectedBot.character.name, 0);
+    const scheduledTime = Date.now() + responseDelay;
+    
+    this.conversationState.messageQueue.push({
+      botName: selectedBot.character.name,
+      scheduledTime,
+      prompt,
+      chatId
+    });
+    
+    elizaLogger.info(
+      `Scheduled single response from ${selectedBot.character.name} in ${Math.round(responseDelay / 1000)}s`
+    );
+    
+    // After this bot responds, we'll schedule follow-up responses from other bots
+    // This happens in the onBotMessage method
   }
 
   public getBotByName(botName: string): CustomTelegramClient | null {
